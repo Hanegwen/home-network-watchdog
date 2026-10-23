@@ -1,0 +1,18 @@
+name: tests
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m unittest -v
+      - run: for f in deploy/install.sh deploy/nw; do sh -n "$f"; done
+      - run: python tools/check_public.py  # nothing personal in a public repo

@@ -1,0 +1,12 @@
+[Unit]
+Description=Home network watch - daily outside scan (weekly summary on Mondays)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=@SERVICE_USER@
+WorkingDirectory=/opt/netwatch
+EnvironmentFile=/etc/netwatch.env
+StateDirectory=netwatch
+AmbientCapabilities=CAP_NET_RAW
+ExecStart=/usr/bin/flock /var/lib/netwatch/lock /usr/bin/python3 -m netwatch.run --daily

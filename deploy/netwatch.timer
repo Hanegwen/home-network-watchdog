@@ -1,0 +1,9 @@
+[Unit]
+Description=Home network watch - every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnCalendar=*:0/5
+
+[Install]
+WantedBy=timers.target

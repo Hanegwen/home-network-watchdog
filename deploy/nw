@@ -1,0 +1,12 @@
+#!/bin/sh
+# Run a netwatch module by hand with the service's settings (as the service user), e.g.:
+#   nw run --dry-run     nw run --weekly     nw devices     nw devices --name aa:bb:.. "Kitchen speaker"
+#   nw visitors --name 'US|AS64500' "Family laptop"
+# install.sh fills in the user below.
+[ "$(id -un)" = "@SERVICE_USER@" ] || exec sudo -u "@SERVICE_USER@" /usr/local/bin/nw "$@"
+set -a
+. /etc/netwatch.env
+set +a
+cd /opt/netwatch
+mod="$1"; shift
+exec flock /var/lib/netwatch/lock python3 -m "netwatch.$mod" "$@"

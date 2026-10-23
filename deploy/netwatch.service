@@ -1,0 +1,13 @@
+[Unit]
+Description=Home network watch - port forwards, new devices, Tailscale, site visitors
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=@SERVICE_USER@
+WorkingDirectory=/opt/netwatch
+EnvironmentFile=/etc/netwatch.env
+StateDirectory=netwatch
+# arp-scan needs raw sockets
+AmbientCapabilities=CAP_NET_RAW
+ExecStart=/usr/bin/flock /var/lib/netwatch/lock /usr/bin/python3 -m netwatch.run
