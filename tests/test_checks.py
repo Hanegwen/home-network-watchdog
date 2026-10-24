@@ -138,8 +138,10 @@ class Tailnet(unittest.TestCase):
         self.assertIn("evil-box", alerts[0][1])
 
 
-def logline(ip, signed_in=False, status=200, uri="/api/media", funnel=True, xff=None):
+def logline(ip, signed_in=False, status=200, uri="/api/media", funnel=True, xff=None, ua=None):
     h = {"X-Forwarded-For": xff or [ip]}
+    if ua:
+        h["User-Agent"] = [ua]
     if funnel:
         h["Tailscale-Funnel-Request"] = ["?1"]
     if signed_in:
@@ -203,6 +205,79 @@ class Visitors(unittest.TestCase):
         self.assertEqual(len(alerts), 1)
         self.assertIn("hammering", alerts[0][0])
         self.assertEqual(self.check([logline("1.2.3.4")] * 700, LATER), [])  # once per day
+
+
+IPHONE_APP = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
+WINDOWS_CHROME = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36"
+
+
+BACKEND_UA = {IPHONE_APP: "other/iOS", WINDOWS_CHROME: '"Chrome 141/Windows"'}  # how the backend logs them
+
+
+class VisitorAccounts(unittest.TestCase):
+    """With the backend's log saying which account each IP signed in as."""
+    def setUp(self):
+        self.conn = db.connect(":memory:")
+        db.put(self.conn, "home_ip", "5.6.7.8")
+
+    def check(self, ip, ua, account="parent@example.com", now=NOW):
+        accounts = visitors.read_accounts(self.conn, now, [f"INFO access path=/api/me status=200 user=1a2b "
+                                                           f"email={account} role=member ip={ip} ua={BACKEND_UA[ua]}"])
+        return visitors.check(self.conn, now, [logline(ip, signed_in=True, ua=ua)], fake_fetch, accounts)[0]
+
+    def test_device_kinds(self):
+        self.assertEqual(visitors.device(IPHONE_APP), "iOS app")
+        self.assertEqual(visitors.device(IPHONE_APP.replace("Mobile/", "Version/18.7 Mobile/") + " Safari/604.1"),
+                         "Safari on iOS")
+        self.assertEqual(visitors.device(WINDOWS_CHROME), "Chrome on Windows")
+        line = 'INFO access user=1a2b email=a@example.com role=admin ip=203.0.113.9 ua="Chrome 155/Windows"'
+        self.assertEqual(visitors.read_accounts(self.conn, NOW, [line]),
+                         {("203.0.113.9", "a@example.com", "Chrome on Windows")})
+
+    def test_learns_from_backend_log_at_home_and_over_tailscale(self):
+        lines = ['x email=a@example.com ip=100.100.1.2 ua=other/iOS', 'x email=a@example.com ip=5.6.7.8 ua=other/iOS']
+        visitors.check(self.conn, NOW, [], fake_fetch, visitors.read_accounts(self.conn, NOW, lines))
+        self.assertEqual([tuple(r) for r in self.conn.execute("SELECT account, device FROM account_devices")],
+                         [("a@example.com", "iOS app")])
+
+    def test_usual_device_on_a_new_network_says_so(self):
+        self.check("5.6.7.8", IPHONE_APP, now=NOW)  # at home: learned quietly
+        self.check("5.6.7.8", IPHONE_APP, now=LATER)
+        alerts = self.check("8.8.4.4", IPHONE_APP, now=LATER)
+        self.assertEqual(len(alerts), 1)
+        self.assertIn("parent@example.com on iOS app: a kind of device this account uses", alerts[0][1])
+        self.assertIn("Nothing to do", alerts[0][1])
+        self.assertTrue(alerts[0][0].endswith("parent@example.com's usual device"))
+
+    def test_new_kind_of_device_alerts_even_on_a_known_network(self):
+        self.check("5.6.7.8", IPHONE_APP)
+        self.assertEqual(len(self.check("8.8.4.4", IPHONE_APP, now=LATER)), 1)  # new network
+        alerts = self.check("8.8.4.4", WINDOWS_CHROME, now=LATER)
+        self.assertEqual(alerts[0][0], f"{config.SITE_NAME}: an account signed in from a new kind of device")
+        self.assertIn("FIRST TIME", alerts[0][1])
+        self.assertEqual(self.check("8.8.4.4", WINDOWS_CHROME, now=LATER), [])  # now known
+        self.assertIn("parent@example.com - Chrome on Windows", visitors.summary(self.conn, "2026-01-01"))
+
+    def test_first_run_with_accounts_learns_devices_quietly(self):
+        visitors.check(self.conn, NOW, [logline("8.8.4.4", signed_in=True)], fake_fetch)  # before accounts
+        self.assertEqual(self.check("8.8.4.4", WINDOWS_CHROME), [])
+        # a parent's earlier sign-in from outside, read from the backend's last 30 days: known from now on
+        conn = db.connect(":memory:")
+        past = visitors.read_accounts(conn, NOW, ["x email=kid@example.com ip=1.2.3.4 ua=other/iOS"])
+        visitors.check(conn, NOW, [], fake_fetch, past)
+        self.assertEqual(conn.execute("SELECT device FROM account_devices").fetchone()["device"], "iOS app")
+
+    def test_backend_without_device_falls_back_to_the_proxy_user_agent(self):
+        self.check("5.6.7.8", IPHONE_APP)
+        accounts = visitors.read_accounts(self.conn, LATER, ["x email=parent@example.com ip=8.8.4.4"])
+        alerts, _ = visitors.check(self.conn, LATER, [logline("8.8.4.4", signed_in=True, ua=WINDOWS_CHROME)],
+                                   fake_fetch, accounts)
+        self.assertIn("parent@example.com on Chrome on Windows: FIRST TIME", alerts[0][1])
+
+    def test_other_accounts_dont_count(self):
+        self.check("5.6.7.8", IPHONE_APP, account="parent@example.com")
+        alerts = self.check("8.8.4.4", IPHONE_APP, account="kid@example.com", now=LATER)
+        self.assertIn("kid@example.com on iOS app: FIRST TIME", alerts[0][1])
 
 
 class Exposure(unittest.TestCase):

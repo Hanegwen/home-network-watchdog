@@ -48,6 +48,13 @@ CREATE TABLE IF NOT EXISTS visits (            -- per day, per outside IP
     PRIMARY KEY (day, ip)
 );
 
+CREATE TABLE IF NOT EXISTS account_devices (   -- which kinds of device each site account signs in from
+    account TEXT, device TEXT,                 -- "a@example.com", "iPhone app"
+    first_seen INTEGER, last_seen INTEGER,
+    last_where TEXT,                           -- "home" or the network it was last used from
+    PRIMARY KEY (account, device)
+);
+
 CREATE TABLE IF NOT EXISTS sent (key TEXT PRIMARY KEY, ts INTEGER);  -- one-off alerts already emailed
 """
 

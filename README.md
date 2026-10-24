@@ -29,6 +29,7 @@ don't count) or sits on the LAN IP of one of your Tailscale machines is that dev
 Port forwards are known by device MAC + internal port + label: the same service coming back after a reset, on a new
 IP or a new outside port, is only logged; a new service, or a known one on a different device, alerts.
 `nw devices --watch MAC` emails every time that device comes back after 30+ minutes away.
+With `SITE_ACCOUNTS_UNIT` set (the site backend's systemd unit, if its log has `ip=... email=...` per request), visitor alerts say **which account** signed in and on **what kind of device** ("iPhone app", "Chrome on Windows"), and whether that account already uses that kind of device - learned from sign-ins at home too. So your own phone on cell data reads "a device this account uses", while an account signing in from a kind of device it has never used alerts even from a known network. It can't tell two iPhones on the same account apart.
 Anonymous site visitors (bots that scan every public URL) never alert; they go into the **weekly summary**
 (Mondays, with the daily run). If `PC_REPORT` is set (the Steam report file of isp-outage-monitor's
 optional Windows helper), the weekly summary also says when that PC last checked in and flags **NOT CONNECTING**

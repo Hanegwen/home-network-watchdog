@@ -64,7 +64,8 @@ The box is not in the traffic path. It sees the network only through:
 - `tailscale status --json`, plus `tailscale ping -c 1` to online peers when a new private Wi-Fi address
   needs to be matched to one of your Tailscale machines (see [the lifecycle](#baseline-then-alert-lifecycle)),
 - an HTTP GET of `SITE_URL`, if set,
-- the Caddy access log, if `CADDY_LOG` exists.
+- the Caddy access log, if `CADDY_LOG` exists,
+- `journalctl -u SITE_ACCOUNTS_UNIT` (the site backend's log since the last run), if set.
 
 The site part is optional. Visitors reach it through Tailscale Funnel, which hands requests to Caddy on the
 box; Caddy writes a JSON access log that netwatch reads. The router has no port forward for it.
@@ -237,8 +238,10 @@ flowchart TD
     noip --> each
     each --> s{"Any signed-in requests?"}
     s -->|"yes"| net{"Country and ASN key new in networks?"}
-    net -->|"yes"| a1["Alert: signed in from a new network"]
-    net -->|"no"| sum["Weekly summary only"]
+    net -->|"yes"| a1["Alert: signed in from a new network (says which account and device, if known)"]
+    net -->|"no"| dev{"SITE_ACCOUNTS_UNIT: an account on a kind of device not in account_devices?"}
+    dev -->|"yes"| a3["Alert: an account signed in from a new kind of device"]
+    dev -->|"no"| sum["Weekly summary only"]
     s -->|"no"| sum
     each --> h{"Requests in this run at least HAMMER_REQUESTS and no hammer key for this IP today in sent?"}
     h -->|"yes"| a2["Alert: IP is hammering the site"]
@@ -259,6 +262,11 @@ flowchart TD
   new IP that signs in counts as a new network. `nw visitors --name <key> <name>` labels a network for the
   weekly summary.
 - Geo results are cached in `ipinfo` with no expiry (the `ts` column is stored but not used).
+- With `SITE_ACCOUNTS_UNIT`, the backend's lines (`ip=`, `email=` or `user=`, `ua="<browser> <n>/<OS>"`) give
+  the account behind each IP. The kind of device is the backend's `ua` without the version ("Chrome on
+  Windows", "iOS app" for an app's web view), or the same summary of Caddy's `User-Agent` when the backend
+  has none. Sign-ins from home, the LAN and Tailscale addresses are only learned into `account_devices`.
+  The first run reads the last 30 days and learns everything quietly (`kv account_devices_from`).
 - Anonymous visitors never alert unless they hammer. They appear in the weekly summary, counted by country,
   with the top 10 IPs listed.
 
@@ -269,7 +277,7 @@ columns added later (`networks.name`, `devices.hostname`, `devices.watch`) are a
 
 | Table | Key | Columns | Written by | Holds |
 |---|---|---|---|---|
-| `kv` | `key` | `value` | all checks, run.py | small state: `setup_sent`, `home_ip`, `shodan_ports`, `upnp`, `forwards_baselined`, `services_seeded`, `devices_baselined`, `peers_baselined`, `log_inode`, `log_offset`, `vault_down_since`, `vault_alerted` |
+| `kv` | `key` | `value` | all checks, run.py | small state: `setup_sent`, `home_ip`, `shodan_ports`, `upnp`, `forwards_baselined`, `services_seeded`, `devices_baselined`, `peers_baselined`, `log_inode`, `log_offset`, `vault_down_since`, `vault_alerted`, `accounts_since`, `account_devices_from` |
 | `forwards` | `key` (`TCP:8000`) | `client`, `int_port`, `descr`, `first_seen`, `last_seen`, `active` | forwards.py | every UPnP mapping seen; `active = 0` once it is gone |
 | `forward_services` | `device`, `proto`, `int_port`, `descr` | `first_seen` | forwards.py | every service a forward has reached (`device` = MAC, `ip:<addr>`, or `*`) |
 | `devices` | `mac` | `ip`, `vendor`, `name`, `first_seen`, `last_seen`, `hostname`, `watch` | devices.py, `nw devices --name/--watch/--unwatch` | every device ever seen on the LAN; `hostname` = its mDNS name |
@@ -277,6 +285,7 @@ columns added later (`networks.name`, `devices.hostname`, `devices.watch`) are a
 | `ipinfo` | `ip` | `country`, `cc`, `region`, `city`, `org`, `asn`, `ts` | geo.py | geo lookup cache |
 | `networks` | `key` (`cc\|ASN`) | `first_seen`, `name` | visitors.py, `nw visitors --name` | networks seen signed in to the site |
 | `visits` | `day`, `ip` | `requests`, `signed_in` | visitors.py | request counts per outside IP per day (the day of the run) |
+| `account_devices` | `account`, `device` | `first_seen`, `last_seen`, `last_where` | visitors.py | each site account's kinds of device ("iOS app"), and where each was last used |
 | `sent` | `key` | `ts` | visitors.py | one-off alerts already emailed (`hammer:<ip>:<day>`) |
 
 Times are Unix seconds, except `visits.day` (`YYYY-MM-DD`).
@@ -316,6 +325,12 @@ stays in the SQLite file on the box. `tailscale ping` goes only to your own tail
   through Funnel, can send its own `Tailscale-Funnel-Request` and `X-Forwarded-For` headers and pick the
   visitor IP netwatch records, including the home IP or a private address so the request is skipped. Keep
   Caddy bound to `127.0.0.1` (or otherwise unreachable except through Funnel) so only Funnel can reach it.
+- **Limitation: account devices are a noise filter.** The kind of device comes from the User-Agent, which
+  any client can set, and two iPhones on one account look the same. Someone with an account's password on
+  the same kind of device as its owner, from a known network, does not alert. The backend's `ip=` may come
+  from the leftmost `X-Forwarded-For` entry, which the client controls; netwatch only uses it to find the
+  account for an IP it already saw as the rightmost entry, or to learn devices at home, so a forged entry
+  can at worst hide which account it was or teach a device kind quietly.
 - **Limitation: device recognition trusts what devices say.** Any device on the LAN can announce any mDNS
   name and pick any free IP. A new device that announces the mDNS name of a known device, or takes the LAN
   IP of one of your Tailscale machines while that machine is away, with a randomized MAC, is recognized as

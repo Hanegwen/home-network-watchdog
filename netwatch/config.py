@@ -25,6 +25,10 @@ CADDY_LOG = _get("CADDY_LOG", "/var/log/caddy/site-access.log")  # missing file 
 SITE_NAME = _get("SITE_NAME", "website")
 SITE_URL = _get("SITE_URL", _get("NETWATCH_VAULT_URL"))  # unset = no down check
 MAINT_DIR = _get("MAINT_DIR", _get("NETWATCH_VAULT_MAINT_DIR"))  # active.json there = planned downtime
+# Optional: the systemd unit of the site's backend, if its log names the account of each request in key=value
+# form (`... ip=<visitor ip> ... email=<account>` or `user=<account>`). Alerts then say which account signed in
+# and whether it has used that kind of device before. The service user must be able to read the journal (adm).
+SITE_ACCOUNTS_UNIT = _get("SITE_ACCOUNTS_UNIT", "")
 HAMMER_REQUESTS = int(_get("HAMMER_REQUESTS", "600"))  # one outside IP, one 5-minute run
 # Country/network of outside visitors via ip-api.com (plain HTTP); "off" keeps visitor IPs at home
 GEO_LOOKUP = _get("GEO_LOOKUP", "on").lower() not in ("off", "no", "false", "0")

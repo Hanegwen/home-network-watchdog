@@ -94,6 +94,7 @@ Leave these alone if you don't host a site. A missing log file or an empty `SITE
 | Setting | What to put |
 |---|---|
 | `CADDY_LOG` | Caddy's JSON access log for the site, default `/var/log/caddy/site-access.log`. See [the Caddy log](#the-caddy-access-log) |
+| `SITE_ACCOUNTS_UNIT` | optional. The systemd unit of the site's backend, if its log has one line per request with `ip=<visitor ip>` and `email=<account>` (or `user=`), and ideally `ua="Chrome 155/Windows"`. Visitor emails then say which account signed in and whether it already uses that kind of device (see [the README](../README.md)). The service user must be able to read the journal (group `adm` or `systemd-journal`) |
 | `SITE_NAME` | what emails call it, default `website` (e.g. `SITE_NAME="home wiki"`) |
 | `SITE_URL` | an address on this box that answers `200 OK` when the site works, e.g. `http://127.0.0.1:8000/`. If it doesn't answer for 5+ minutes you get an email, and another when it's back |
 | `MAINT_DIR` | optional. A directory where your own maintenance script writes `active.json` while the site is down on purpose; no alert then |
